@@ -1,0 +1,55 @@
+<?xml version="1.0"?>
+<project>
+    <root name="src"/>
+    <builddir>build</builddir>
+    <analyze-all-files>true</analyze-all-files>
+    <check-config>true</check-config>
+    <check-library>true</check-library>
+    <max-ctu-depth>4</max-ctu-depth>
+    <max-template-recursion>100</max-template-recursion>
+    
+    <!-- Enable all checks -->
+    <enable>all</enable>
+    
+    <!-- Include paths -->
+    <includedir>
+        <dir name="src"/>
+        <dir name="include"/>
+    </includedir>
+    
+    <!-- Suppressions -->
+    <suppress>
+        <id>missingIncludeSystem</id>
+    </suppress>
+    
+    <suppress>
+        <id>unmatchedSuppression</id>
+    </suppress>
+    
+    <suppress>
+        <id>toomanyconfigs</id>
+    </suppress>
+    
+    <!-- Define platform -->
+    <platform>generic</platform>
+    
+    <!-- Define standard -->
+    <std>c++17</std>
+    
+    <!-- Define macros used by Arduino -->
+    <define name="ARDUINO" value="10819"/>
+    <define name="ESP32"/>
+    <define name="__cplusplus" value="201703L"/>
+    
+    <!-- Check paths -->
+    <paths>
+        <dir name="src"/>
+    </paths>
+    
+    <!-- Exclude patterns -->
+    <exclude>
+        <path name="build/"/>
+        <path name=".pio/"/>
+        <path name="test/"/>
+    </exclude>
+</project> 
