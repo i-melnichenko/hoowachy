@@ -2,6 +2,7 @@
 #define WIFI_MANAGER_H
 
 #include <Arduino.h>
+#include "logger.h"
 
 // Forward declarations
 class WiFiClass;

@@ -1,11 +1,12 @@
 #include "button.h"
+#include "logger.h"
 #include "config.h"
 #include "event_manager.h"
 
 void Button::Setup() { pinMode(BUTTON_PIN, INPUT_PULLUP); }
 
 void Button::Run() {
-    Serial.println("Button Run");
+    LOG_DEBUG("Button Run");
     while (true) {
         static uint32_t pressStartTime = 0;
         static bool lastState = LOW;

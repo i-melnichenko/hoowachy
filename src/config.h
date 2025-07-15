@@ -2,6 +2,7 @@
 #define CONFIG_H
 
 #include <Arduino.h>
+#include "logger.h"
 
 class Config {
   public:
@@ -29,6 +30,14 @@ class Config {
         bool enabled = true;
         bool startupSound = true;
     } buzzer;
+
+    // Logger Settings
+    struct LoggerSettings {
+        bool fileLoggingEnabled = false;
+        String logLevel = "INFO";  // DEBUG, INFO, WARNING, ERROR
+        String filePrefix = "hoowachy";
+        bool includeDateInFilename = true;
+    } logger;
 
     // Constructor
     Config();
@@ -61,7 +70,7 @@ extern Config config;
 
 extern SemaphoreHandle_t spiMutex;
 
-#define DEBUG 1
+#define CONFIG_DEBUG 1
 #define EEPROM_SIZE 1024
 #define BUTTON_LONG_PRESS_TIME 300
 

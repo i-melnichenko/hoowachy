@@ -1,4 +1,5 @@
 #include "buzzer.h"
+#include "logger.h"
 
 // Static member variable definitions
 uint8_t Buzzer::volume = 200;
@@ -21,7 +22,7 @@ void Buzzer::Setup() {
 }
 
 void Buzzer::Run() {
-    Serial.println("Buzzer Run");
+    LOG_DEBUG("Buzzer Run");
     while (true) {
         if (currentSound != SoundType::NONE) {
             switch (currentSound) {
@@ -55,23 +56,23 @@ void Buzzer::Run() {
 }
 
 void Buzzer::on_button_press(const ButtonShortPressEvent& event) {
-    Serial.printf("Button press - ID: %d, Duration: %lu ms\n", event.button_id, event.press_duration_ms);
+    LOG_DEBUGF("Button press - ID: %d, Duration: %lu ms", event.button_id, event.press_duration_ms);
     currentSound = SoundType::BUTTON;
 }
 
 void Buzzer::on_alarm_on(const CriticalAlarmEvent& event) {
-    Serial.printf("Alarm ON - Message: %s, Severity: %d\n", event.alarm_message, event.severity_level);
+    LOG_WARNINGF("Alarm ON - Message: %s, Severity: %d", event.alarm_message, event.severity_level);
     currentSound = SoundType::ALARM_ON;
     soundStep = 0;
 }
 
 void Buzzer::on_alarm_off(const CriticalAlarmOffEvent& event) {
-    Serial.printf("Alarm OFF - Reason: %s\n", event.reason);
+    LOG_INFOF("Alarm OFF - Reason: %s", event.reason);
     currentSound = SoundType::ALARM_OFF;
 }
 
 void Buzzer::beep(uint32_t duration_ms, uint32_t frequency_hz) {
-    Serial.printf("Beep: %d, %d\n", duration_ms, frequency_hz);
+    LOG_DEBUGF("Beep: %d, %d", duration_ms, frequency_hz);
     ledcWriteTone(0, frequency_hz);
     ledcWrite(0, Buzzer::volume);
     vTaskDelay(pdMS_TO_TICKS(duration_ms));

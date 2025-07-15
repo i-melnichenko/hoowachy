@@ -1,103 +1,147 @@
-# Module Registry System
+# Module Creation Guide
 
-This system allows for automatic registration and management of modules in the project. Modules can be easily added or removed without modifying the main application code.
+This guide explains how to create new modules for the Hoowachy system.
 
-## How It Works
+## Overview
 
-1. **Module Registry**: All modules are automatically registered using the `REGISTER_MODULE` macro
-2. **Module Manager**: Handles the lifecycle of all registered modules
-3. **Auto-discovery**: Modules are discovered at compile time and started automatically
+The Hoowachy system uses an explicit module registration approach. All modules must be manually registered in `main.cpp` before being started.
 
-## Adding a New Module
+## Module Registration System
 
-To add a new module, you only need to create 2 files in the `modules/` directory:
+### How It Works
 
-### 1. Create Module Header (`your_module.h`)
+1. **Module Creation**: Each module implements the `IModule` interface
+2. **Explicit Registration**: Modules are registered manually in `main.cpp` using `ModuleRegistry::RegisterModule()`
+3. **Module Startup**: The `ModuleManager::StartAllModules()` function starts all registered modules
+
+### Registration Process
+
+Modules are registered in the `registerModules()` function in `main.cpp`:
 
 ```cpp
-#ifndef YOUR_MODULE_H
-#define YOUR_MODULE_H
+void registerModules() {
+    LOG_INFO("Registering modules explicitly...");
 
+    // Register Clock module
+    modules::ModuleRegistry::RegisterModule("Clock", "clock", 2, 4096,
+                                           []() -> modules::IModule* { return new modules::Clock(); });
+
+    // Register AccuWeather module
+    modules::ModuleRegistry::RegisterModule("AccuWeather", "accuweather", 5, 12 * 1024,
+                                           []() -> modules::IModule* { return new modules::AccuWeather(); });
+                                           
+    // Register Overlay module
+    modules::ModuleRegistry::RegisterModule("Overlay", "overlay", 3, 4096,
+                                           []() -> modules::IModule* { return new modules::Overlay(); });
+
+    LOG_INFO("All modules registered explicitly");
+}
+```
+
+### Registration Parameters
+
+- **Name**: Unique module name for identification
+- **Config Section**: INI file section name for configuration
+- **Priority**: Task priority (1-5, higher = more priority)
+- **Stack Size**: Memory allocated for module task (in bytes)
+- **Factory Function**: Lambda that creates module instance
+
+## Creating a New Module
+
+### 1. Create Module Header File
+
+Create `src/modules/yourmodule.h`:
+
+```cpp
+#ifndef YOURMODULE_H
+#define YOURMODULE_H
+
+#include <Arduino.h>
 #include "module.h"
 
 namespace modules {
 
-// Your module specific configuration
+// Module-specific configuration
 struct YourModuleConfig : public ModuleConfig {
-    String someParameter = "default_value";
-    int someNumber = 42;
+    String customSetting = "";
+    int customValue = 0;
 };
 
 class YourModule : public IModule {
-public:
+  public:
     void Setup() override;
-    void Run(void *parameter) override;
+    void Run(void* parameter) override;
     void Draw() override;
     bool IsReady() override;
     void Configure(const ModuleConfig& config) override;
     bool ConfigureFromSection(const ConfigSection& section) override;
 
-private:
+  private:
     YourModuleConfig moduleConfig;
     bool ready = false;
 };
 
-}
+}  // namespace modules
 
-#endif // YOUR_MODULE_H
+#endif  // YOURMODULE_H
 ```
 
-### 2. Create Module Implementation (`your_module.cpp`)
+### 2. Create Module Implementation File
+
+Create `src/modules/yourmodule.cpp`:
 
 ```cpp
-#include "your_module.h"
-#include "module_registry.h"
-
-// Auto-register this module
-REGISTER_MODULE("YourModule", "your_module", 2, 4096, modules::YourModule)
+#include "yourmodule.h"
+#include "logger.h"
+#include "../config_manager.h"
 
 namespace modules {
 
 void YourModule::Setup() {
-    // Basic module initialization
-    Serial.println("YourModule: Setup called");
-    // ready status will be determined in Run()
+    LOG_INFO("YourModule setup");
+    // Initialize your module here
 }
 
-void YourModule::Run(void *parameter) {
-    // Your module's main loop
-    while (true) {
-        // Check if module is enabled in configuration
-        if (!moduleConfig.enable) {
-            Serial.println("YourModule: Module disabled in configuration");
-            ready = false;
-            vTaskDelay(pdMS_TO_TICKS(5000)); // Wait 5 seconds before checking again
-            continue;
-        }
+void YourModule::Run(void* parameter) {
+    LOG_INFO("YourModule Run");
 
-        // Check if WiFi is connected (if needed)
-        if (!WiFi.isConnected()) {
-            Serial.println("YourModule: WiFi not connected, waiting...");
-            ready = false;
-            vTaskDelay(pdMS_TO_TICKS(5000)); // Wait 5 seconds before retrying
-            continue;
-        }
-
-        // All checks passed, module is ready
-        if (!ready) {
-            Serial.println("YourModule: All checks passed, module is ready");
-            ready = true;
-        }
-
-        // Do your work here
-        // Example: make API calls, process data, etc.
-
+    // Wait for configuration to be ready
+    ConfigManager* configManager = ConfigManager::getInstance();
+    while (!configManager->IsReady()) {
+        LOG_INFO("Waiting for config to be ready...");
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
+
+    // Configure from INI section
+    ConfigSection moduleSection = configManager->getConfigSection("yourmodule");
+
+    if (!ConfigureFromSection(moduleSection)) {
+        LOG_INFO("Failed to configure YourModule");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    if (!moduleConfig.enable) {
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ready = true;
+    LOG_INFO("YourModule is now READY!");
+
+    while (true) {
+        // Your module logic here
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
+    vTaskDelete(NULL);
 }
 
 void YourModule::Draw() {
-    // Drawing logic for display
+    if (!ready) return;
+
+    // Draw your module content here
+    // Use u8g2 library functions
 }
 
 bool YourModule::IsReady() {
@@ -105,105 +149,139 @@ bool YourModule::IsReady() {
 }
 
 void YourModule::Configure(const ModuleConfig& config) {
-    // Handle legacy configuration
+    const YourModuleConfig& yourConfig = static_cast<const YourModuleConfig&>(config);
+    moduleConfig = yourConfig;
+
+    LOG_INFO("YourModule configured manually");
 }
 
 bool YourModule::ConfigureFromSection(const ConfigSection& section) {
-    // Parse configuration from INI file
-    moduleConfig.someParameter = section.getValue("someParameter", "default_value");
-    moduleConfig.someNumber = section.getIntValue("someNumber", 42);
+    // Parse configuration from INI section
+    moduleConfig.customSetting = section.getValue("custom_setting", "default");
+    moduleConfig.customValue = section.getIntValue("custom_value", 0);
     moduleConfig.enable = section.getBoolValue("enable", false);
 
+    LOG_INFO("YourModule configured from INI section");
     return true;
 }
 
-}
+}  // namespace modules
 ```
 
-### 3. Add Module Include to main.cpp
+### 3. Add Module to Main Registration
 
-Add an include for your new module to `main.cpp`:
+In `src/main.cpp`, add your module to the `registerModules()` function:
 
 ```cpp
-#include "modules/your_module.h"
+#include "modules/yourmodule.h"  // Add include
+
+void registerModules() {
+    LOG_INFO("Registering modules explicitly...");
+
+    // ... existing registrations ...
+
+    // Register Your Module
+    modules::ModuleRegistry::RegisterModule("YourModule", "yourmodule", 2, 8192,
+                                           []() -> modules::IModule* { return new modules::YourModule(); });
+
+    LOG_INFO("All modules registered explicitly");
+}
 ```
 
 ### 4. Add Configuration Section
 
-Add a configuration section to `hoowachy_config.ini`:
+Add configuration section to `hoowachy_config.ini`:
 
 ```ini
-[your_module]
+[yourmodule]
 enable=true
-someParameter=hello_world
-someNumber=123
+custom_setting="example"
+custom_value=42
+position_x=0
+position_y=0
+width=128
+height=64
 ```
 
-## Removing a Module
+## Module Lifecycle
 
-To remove a module:
+1. **Registration**: Module registered in `registerModules()`
+2. **Startup**: `ModuleManager::StartAllModules()` creates task for each module
+3. **Setup**: `Setup()` method called for initialization
+4. **Run**: `Run()` method executed in module's task
+5. **Configuration**: Module configures itself from INI file
+6. **Ready State**: Module sets `ready = true` when operational
+7. **Draw**: `Draw()` method called by display system for rendering
 
-1. Delete the 2 module files (`your_module.h` and `your_module.cpp`)
-2. Remove the include from `main.cpp`
-3. Remove the configuration section from `hoowachy_config.ini`
+## Module Types
 
-That's it! The module will be completely removed from the system.
+### Regular Modules
 
-## REGISTER_MODULE Parameters
+- Standard modules that draw content on designated screen areas
+- Examples: Clock, AccuWeather
+
+### Overlay Modules
+
+- Special modules that draw on top of other modules
+- Override `IsOverlay()` to return `true`
+- Example: Overlay (system info display)
 
 ```cpp
-REGISTER_MODULE(name, configSection, priority, stackSize, moduleClass)
+bool IsOverlay() const override { return true; }
 ```
-
-- `name`: Display name for the module
-- `configSection`: INI file section name for configuration
-- `priority`: FreeRTOS task priority (1-10, higher = more priority)
-- `stackSize`: Stack size in bytes for the module task
-- `moduleClass`: Your module class name
-
-## Example Modules
-
-- **Clock**: `clock.h` / `clock.cpp` - Displays current time
-- **AccuWeather**: `accuweather.h` / `accuweather.cpp` - Weather information
 
 ## Best Practices
 
-### WiFi-Dependent Modules
+1. **Always check `ready` state** before drawing or performing operations
+2. **Handle configuration errors gracefully** - return `false` from `ConfigureFromSection()`
+3. **Use appropriate stack sizes** - larger for HTTP/JSON operations, smaller for simple modules
+4. **Set proper task priorities** - higher for time-sensitive modules
+5. **Include error handling** in `Run()` method
+6. **Log important events** for debugging
+7. **Clean up resources** when module exits
 
-For modules that require internet connectivity (like weather, API calls, etc.):
+## Module Priority Guidelines
 
-- Put all WiFi connectivity checks in `Run()` method
-- Continuously monitor connection status during operation
-- Handle connection loss gracefully by waiting and retrying
+- **Priority 1**: Low priority, background tasks
+- **Priority 2**: Normal priority, most modules
+- **Priority 3**: Medium priority, interactive modules
+- **Priority 4**: High priority, time-sensitive modules
+- **Priority 5**: Highest priority, critical system modules
 
-### Configuration Validation
+## Stack Size Guidelines
 
-- Put all configuration checks in `Run()` method
-- Continuously check if the module is enabled in configuration
-- Validate required configuration parameters in the main loop
-- Set `ready = false` if any validation fails
+- **4KB**: Simple modules with minimal memory usage
+- **8KB**: Standard modules with basic operations
+- **12KB**: Modules with moderate memory needs
+- **64KB**: Modules with HTTP requests, JSON parsing, large data structures
 
-### Error Handling
+## Troubleshooting
 
-- Use Serial.println() for debugging and status messages
-- Set appropriate delays when waiting for resources
-- Implement retry logic for recoverable errors
+### Module Not Starting
 
-### Dependencies
+- Check registration in `registerModules()` function
+- Verify module is included in `main.cpp`
+- Check task creation logs
+- Ensure adequate stack size
 
-Common includes you might need:
+### Module Not Drawing
 
-```cpp
-#include <WiFi.h>          // For WiFi connectivity checks
-#include <HTTPClient.h>    // For HTTP requests
-#include <ArduinoJson.h>   // For JSON parsing
-```
+- Verify `IsReady()` returns `true`
+- Check if display is in correct state (DASHBOARD vs TERMINAL)
+- Ensure `Draw()` method is implemented
+- For overlay modules, check `IsOverlay()` returns `true`
 
-## Benefits
+### Configuration Issues
 
-1. **Easy Module Management**: Add/remove modules by simply adding/removing files
-2. **No Main Code Changes**: No need to modify `main.cpp` when adding modules
-3. **Automatic Registration**: Modules register themselves at compile time
-4. **Consistent Interface**: All modules follow the same pattern
-5. **Configuration Support**: Each module can have its own INI configuration section
-6. **Robust Error Handling**: Built-in checks for connectivity and configuration
+- Verify INI section exists and is correctly named
+- Check configuration parsing in `ConfigureFromSection()`
+- Ensure `enable=true` in configuration
+- Review configuration logs
+
+## Current Modules
+
+1. **Clock**: Displays current time with timezone support
+2. **AccuWeather**: Weather information and forecasts
+4. **Overlay**: System information overlay (FPS, memory, WiFi)
+
+Each module serves as an example of different implementation patterns and can be used as reference for new modules.

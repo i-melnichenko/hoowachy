@@ -1,4 +1,6 @@
 #include "display.h"
+#include "logger.h"
+#include "memory_manager.h"
 #include <SPI.h>
 #include <U8g2lib.h>
 #include "modules/module.h"
@@ -20,28 +22,61 @@ int Display::stepProgress = 0;
 bool Display::stepCompleted = false;
 
 void Display::Setup() {
-    Serial.println("Display setup");
+    LOG_INFO("Display setup");
     u8g2.begin();
 }
 
 void Display::Run() {
     Terminal::Setup();
 
+    // Skip MemoryManager for Display - it's causing system hangs
+    // Display will work directly with available heap memory
+    bool memoryReserved = true; // Always assume we have memory for basic display operations
+    
+    LOG_INFO("Display: Running in direct memory mode (bypassing MemoryManager)");
+
+    // Reduced update frequency for degraded mode
+    const int normalUpdateMs = 25;
+    const int degradedUpdateMs = 250; // Much slower when no memory reserved (10x slower)
+    
     while (true) {
+        // Simple memory check without MemoryManager
+        static unsigned long lastMemoryCheck = 0;
+        if (millis() - lastMemoryCheck > 10000) { // Check every 10 seconds
+            size_t freeHeap = ESP.getFreeHeap();
+            if (freeHeap < 50000) { // Less than 50KB
+                LOG_WARNINGF("Display: Low memory detected: %zu bytes", freeHeap);
+            }
+            lastMemoryCheck = millis();
+        }
+        
+        // Skip display update if memory is extremely low
+        if (ESP.getFreeHeap() < 10000) { // Less than 10KB
+            vTaskDelay(pdMS_TO_TICKS(degradedUpdateMs));
+            continue;
+        }
+
         if (xSemaphoreTake(spiMutex, portMAX_DELAY) == pdTRUE) {
-            switch (currentState) {
-                case State::TERMINAL:
-                    drawTerminal();
-                    break;
-                case State::DASHBOARD:
-                    drawDashboard();
-                    break;
+            // Only draw if we have memory reserved OR if we're in emergency mode
+            if (memoryReserved) {
+                switch (currentState) {
+                    case State::TERMINAL:
+                        drawTerminal();
+                        break;
+                    case State::DASHBOARD:
+                        drawDashboard();
+                        break;
+                }
             }
 
             xSemaphoreGive(spiMutex);
         }
-        vTaskDelay(pdMS_TO_TICKS(25));
+        
+        // Use different update frequencies based on memory availability
+        vTaskDelay(pdMS_TO_TICKS(memoryReserved ? normalUpdateMs : degradedUpdateMs));
     }
+    
+    // No memory cleanup needed in direct mode
 }
 
 void Display::drawTerminal() {
@@ -144,8 +179,20 @@ void Display::drawTerminal() {
 void Display::drawDashboard() {
     u8g2.clearBuffer();
 
+    // First pass: Draw all non-overlay modules
     for (int i = 0; i < active_modules.size(); i++) {
-        active_modules[i]->Draw();
+        modules::IModule* module = active_modules[i];
+        if (!module->IsOverlay()) {
+            module->Draw();
+        }
+    }
+    
+    // Second pass: Draw overlay modules on top
+    for (int i = 0; i < active_modules.size(); i++) {
+        modules::IModule* module = active_modules[i];
+        if (module->IsOverlay()) {
+            module->Draw();
+        }
     }
 
     u8g2.sendBuffer();

@@ -1,4 +1,6 @@
 #include "config_manager.h"
+#include "logger.h"
+#include "memory_manager.h"
 #include <FS.h>
 #include <SD.h>
 #include <SPI.h>
@@ -36,7 +38,7 @@ bool ConfigManager::initializeSD() {
 
     EventManager::Emit(TerminalEvent(0, "SD", "Initializing SD card", TerminalEvent::State::PROCESSING));
 
-    Serial.println("Initializing SD card...");
+    LOG_INFO("Initializing SD card...");
 
     if (xSemaphoreTake(spiMutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
         // When working with SD card: DISPLAY_CS_PIN = HIGH, SD_CS_PIN = LOW
@@ -45,13 +47,13 @@ bool ConfigManager::initializeSD() {
         vTaskDelay(pdMS_TO_TICKS(50));
 
         bool result = SD.begin(SD_CS_PIN);  // Use default SPI instance
-        Serial.println("SD.begin() finished");
-        Serial.println(result);
+        LOG_INFO("SD.begin() finished");
+        LOG_INFOF("SD.begin() result: %s", result ? "SUCCESS" : "FAILED");
         vTaskDelay(pdMS_TO_TICKS(50));
 
         // Check if SD card is mounted
         if (SD.cardType() == CARD_NONE) {
-            Serial.println("No SD card attached");
+            LOG_INFO("No SD card attached");
             EventManager::Emit(TerminalEvent(0, "SD", "No SD card attached", TerminalEvent::State::FAILURE));
             config.setReady(false);
             // Release CS pins before returning
@@ -60,23 +62,23 @@ bool ConfigManager::initializeSD() {
             return false;
         }
 
-        Serial.print("SD Card Type: ");
+        LOG_INFO("SD Card Type: ");
         uint8_t cardType = SD.cardType();
         if (cardType == CARD_MMC) {
-            Serial.println("MMC");
+            LOG_INFO("MMC");
         } else if (cardType == CARD_SD) {
-            Serial.println("SDSC");
+            LOG_INFO("SDSC");
         } else if (cardType == CARD_SDHC) {
-            Serial.println("SDHC");
+            LOG_INFO("SDHC");
         } else {
-            Serial.println("UNKNOWN");
+            LOG_INFO("UNKNOWN");
         }
 
         uint64_t cardSize = SD.cardSize() / (1024 * 1024);
-        Serial.printf("SD Card Size: %lluMB\n", cardSize);
+        LOG_INFOF("SD Card Size: %lluMB\n", cardSize);
 
         sdInitialized = true;
-        Serial.println("SD card initialized successfully");
+        LOG_INFO("SD card initialized successfully");
         EventManager::Emit(TerminalEvent(0, "SD", "SD card initialized", TerminalEvent::State::SUCCESS));
         config.setReady(true);
 
@@ -105,13 +107,13 @@ void ConfigManager::trim(std::string& str) {
 
 String ConfigManager::readFile(const String& filePath) {
     if (!sdInitialized) {
-        Serial.println("SD card not initialized");
+        LOG_INFO("SD card not initialized");
         return "";
     }
 
     File file = SD.open(filePath, FILE_READ);
     if (!file) {
-        Serial.printf("Failed to open file: %s\n", filePath.c_str());
+        LOG_INFOF("Failed to open file: %s\n", filePath.c_str());
         return "";
     }
 
@@ -149,7 +151,7 @@ bool ConfigManager::parseINIFile(const String& filePath) {
         if (line.charAt(0) == '[' && line.charAt(line.length() - 1) == ']') {
             currentSection = line.substring(1, line.length() - 1);
             currentSection.toLowerCase();
-            Serial.printf("Parsing section: [%s]\n", currentSection.c_str());
+            LOG_INFOF("Parsing section: [%s]\n", currentSection.c_str());
             startPos = endPos + 1;
             continue;
         }
@@ -168,7 +170,7 @@ bool ConfigManager::parseINIFile(const String& filePath) {
                 value = value.substring(1, value.length() - 1);
             }
 
-            Serial.printf("Config: [%s] %s = %s\n", currentSection.c_str(), key.c_str(), value.c_str());
+            LOG_INFOF("Config: [%s] %s = %s\n", currentSection.c_str(), key.c_str(), value.c_str());
 
             // Parse based on section
             if (currentSection == "wifi") {
@@ -179,6 +181,8 @@ bool ConfigManager::parseINIFile(const String& filePath) {
                 parseDisplaySection(key, value);
             } else if (currentSection == "buzzer") {
                 parseBuzzerSection(key, value);
+            } else if (currentSection == "logger") {
+                parseLoggerSection(key, value);
             }
         }
 
@@ -203,7 +207,7 @@ bool ConfigManager::parseINIFile(const String& filePath) {
                     value = value.substring(1, value.length() - 1);
                 }
 
-                Serial.printf("Config: [%s] %s = %s\n", currentSection.c_str(), key.c_str(), value.c_str());
+                LOG_INFOF("Config: [%s] %s = %s\n", currentSection.c_str(), key.c_str(), value.c_str());
 
                 // Parse based on section
                 if (currentSection == "wifi") {
@@ -214,6 +218,8 @@ bool ConfigManager::parseINIFile(const String& filePath) {
                     parseDisplaySection(key, value);
                 } else if (currentSection == "buzzer") {
                     parseBuzzerSection(key, value);
+                } else if (currentSection == "logger") {
+                    parseLoggerSection(key, value);
                 }
             }
         }
@@ -231,12 +237,16 @@ void ConfigManager::parseWiFiSection(const String& key, const String& value) {
 }
 
 void ConfigManager::parseSystemSection(const String& key, const String& value) {
+    LOG_INFOF("ConfigManager::parseSystemSection: key='%s', value='%s'\n", key.c_str(), value.c_str());
     if (key == "language") {
         config.system.language = value;
+        LOG_INFOF("Set system.language = '%s'\n", config.system.language.c_str());
     } else if (key == "timezone") {
         config.system.timezone = value;
+        LOG_INFOF("Set system.timezone = '%s'\n", config.system.timezone.c_str());
     } else if (key == "ntp_server") {
         config.system.ntpServer = value;
+        LOG_INFOF("Set system.ntpServer = '%s'\n", config.system.ntpServer.c_str());
     }
 }
 
@@ -256,8 +266,23 @@ void ConfigManager::parseBuzzerSection(const String& key, const String& value) {
     }
 }
 
+void ConfigManager::parseLoggerSection(const String& key, const String& value) {
+    if (key == "file_logging_enabled") {
+        config.logger.fileLoggingEnabled = (value == "true" || value == "1");
+    } else if (key == "log_level") {
+        config.logger.logLevel = value;
+    } else if (key == "file_prefix") {
+        config.logger.filePrefix = value;
+    } else if (key == "include_date_in_filename") {
+        config.logger.includeDateInFilename = (value == "true" || value == "1");
+    }
+}
+
 // Load config from SD card
 bool ConfigManager::loadConfig(const char* fileName) {
+    // ConfigManager bypasses MemoryManager - configuration is critical for system operation
+    LOG_INFO("ConfigManager: Loading config without MemoryManager restrictions");
+
     if (!initializeSD()) {
         return false;
     }
@@ -266,11 +291,11 @@ bool ConfigManager::loadConfig(const char* fileName) {
     String filePath = String("/") + fileName;
 
     if (!fileExists(filePath)) {
-        Serial.printf("Config file %s not found, creating default config\n", fileName);
+        LOG_INFOF("Config file %s not found, creating default config\n", fileName);
         return true;
     }
 
-    Serial.printf("Loading config from: %s\n", filePath.c_str());
+    LOG_INFOF("Loading config from: %s\n", filePath.c_str());
     return parseINIFile(filePath);
 }
 
@@ -280,7 +305,7 @@ modules::ConfigSection ConfigManager::getConfigSection(const String& sectionName
     modules::ConfigSection section;
 
     // Debug: Print what we're looking for
-    Serial.printf("Debug: ConfigManager::getConfigSection called with section='%s', file='%s'\n", 
+    LOG_INFOF("Debug: ConfigManager::getConfigSection called with section='%s', file='%s'\n", 
                   sectionName.c_str(), filePath.c_str());
 
     // Add "/" prefix only if it's not already there
@@ -288,22 +313,22 @@ modules::ConfigSection ConfigManager::getConfigSection(const String& sectionName
     if (!fullPath.startsWith("/")) {
         fullPath = String("/") + filePath;
     }
-    Serial.printf("Debug: Full file path: '%s'\n", fullPath.c_str());
+    LOG_INFOF("Debug: Full file path: '%s'\n", fullPath.c_str());
 
     String content = readFile(fullPath);
     if (content.length() == 0) {
-        Serial.printf("Debug: File content is empty or file not found\n");
+        LOG_INFOF("Debug: File content is empty or file not found\n");
         return section;
     }
 
-    Serial.printf("Debug: File content length: %d characters\n", content.length());
+    LOG_INFOF("Debug: File content length: %d characters\n", content.length());
 
     String targetSection = sectionName;
     targetSection.toLowerCase();
     String currentSection = "";
     bool foundSection = false;
 
-    Serial.printf("Debug: Looking for section '%s' (lowercase)\n", targetSection.c_str());
+    LOG_INFOF("Debug: Looking for section '%s' (lowercase)\n", targetSection.c_str());
 
     // Parse INI content line by line
     int startPos = 0;
@@ -324,7 +349,7 @@ modules::ConfigSection ConfigManager::getConfigSection(const String& sectionName
             currentSection = line.substring(1, line.length() - 1);
             currentSection.toLowerCase();
             foundSection = (currentSection == targetSection);
-            Serial.printf("Debug: Found section [%s], target match: %s\n", 
+            LOG_INFOF("Debug: Found section [%s], target match: %s\n", 
                           currentSection.c_str(), foundSection ? "YES" : "NO");
             startPos = endPos + 1;
             continue;
@@ -345,7 +370,7 @@ modules::ConfigSection ConfigManager::getConfigSection(const String& sectionName
                     value = value.substring(1, value.length() - 1);
                 }
 
-                Serial.printf("Debug: Adding key='%s' value='%s'\n", key.c_str(), value.c_str());
+                LOG_INFOF("Debug: Adding key='%s' value='%s'\n", key.c_str(), value.c_str());
                 section.keyValuePairs[key] = value;
             }
         }
@@ -371,13 +396,13 @@ modules::ConfigSection ConfigManager::getConfigSection(const String& sectionName
                     value = value.substring(1, value.length() - 1);
                 }
 
-                Serial.printf("Debug: Adding key='%s' value='%s' (last line)\n", key.c_str(), value.c_str());
+                LOG_INFOF("Debug: Adding key='%s' value='%s' (last line)\n", key.c_str(), value.c_str());
                 section.keyValuePairs[key] = value;
             }
         }
     }
 
-    Serial.printf("Debug: Final section contains %d key-value pairs\n", section.keyValuePairs.size());
+    LOG_INFOF("Debug: Final section contains %d key-value pairs\n", section.keyValuePairs.size());
     return section;
 }
 

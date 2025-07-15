@@ -2,6 +2,7 @@
 #define MODULE_REGISTRY_H
 
 #include <Arduino.h>
+#include "logger.h"
 #include <functional>
 #include <vector>
 #include "module.h"

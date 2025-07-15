@@ -2,6 +2,7 @@
 #define MODULE_MANAGER_H
 
 #include <freertos/FreeRTOS.h>
+#include "logger.h"
 #include <freertos/task.h>
 #include "../config_manager.h"
 #include "module_registry.h"

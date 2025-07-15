@@ -1,4 +1,5 @@
 #include "clock.h"
+#include "logger.h"
 #include <Arduino.h>
 #include <U8g2lib.h>
 #include <WiFi.h>
@@ -7,9 +8,6 @@
 #include "../timezone_utils.h"
 #include "../wifi_manager.h"
 #include "module_registry.h"
-
-// Auto-register this module
-REGISTER_MODULE("Clock", "clock", 2, 4096, modules::Clock)
 
 extern U8G2_SSD1309_128X64_NONAME0_F_4W_HW_SPI u8g2;
 
@@ -20,13 +18,12 @@ void Clock::Configure(const ModuleConfig& config) {
     const ClockConfig& clockConfig = static_cast<const ClockConfig&>(config);
     moduleConfig = clockConfig;
 
-    Serial.println("Clock module configured");
-    Serial.printf("  Format: %s\n", moduleConfig.format.c_str());
-    Serial.printf("  Show seconds: %s\n", moduleConfig.showSeconds ? "YES" : "NO");
-    Serial.printf("  Timezone: %s\n", moduleConfig.timezone.isEmpty() ? "DEFAULT" : moduleConfig.timezone.c_str());
-    Serial.printf("  Position: (%d, %d)\n", moduleConfig.positionX, moduleConfig.positionY);
-    Serial.printf("  Size: %dx%d\n", moduleConfig.width, moduleConfig.height);
-    Serial.printf("  Enabled: %s\n", moduleConfig.enable ? "YES" : "NO");
+    LOG_INFO("Clock module configured");
+    LOG_INFOF("  Format: %s\n", moduleConfig.format.c_str());
+    LOG_INFOF("  Show seconds: %s\n", moduleConfig.showSeconds ? "YES" : "NO");
+    LOG_INFOF("  Position: (%d, %d)\n", moduleConfig.positionX, moduleConfig.positionY);
+    LOG_INFOF("  Size: %dx%d\n", moduleConfig.width, moduleConfig.height);
+    LOG_INFOF("  Enabled: %s\n", moduleConfig.enable ? "YES" : "NO");
 }
 
 bool Clock::ConfigureFromSection(const ConfigSection& section) {
@@ -34,8 +31,6 @@ bool Clock::ConfigureFromSection(const ConfigSection& section) {
     moduleConfig.format = section.getValue("format", "24h");
     moduleConfig.showSeconds = section.getBoolValue("showSeconds", true);
     moduleConfig.syncInterval = section.getIntValue("syncInterval", 3600);
-    moduleConfig.timezone = section.getValue("timezone", "");
-    moduleConfig.systemTimezone = section.getValue("systemTimezone", "UTC");
     moduleConfig.positionX = section.getIntValue("position_x", 0);
     moduleConfig.positionY = section.getIntValue("position_y", 0);
     moduleConfig.width = section.getIntValue("width", 128);
@@ -44,47 +39,43 @@ bool Clock::ConfigureFromSection(const ConfigSection& section) {
 
     // Validation
     if (moduleConfig.format != "12h" && moduleConfig.format != "24h") {
-        Serial.println("Clock: Invalid format, using 24h");
+        LOG_INFO("Clock: Invalid format, using 24h");
         moduleConfig.format = "24h";
     }
 
     if (moduleConfig.syncInterval < 60) {
-        Serial.println("Clock: Sync interval too low, using 3600 seconds");
+        LOG_INFO("Clock: Sync interval too low, using 3600 seconds");
         moduleConfig.syncInterval = 3600;
     }
 
-    Serial.println("Clock configured from INI section");
-    Serial.printf("  Format: %s\n", moduleConfig.format.c_str());
-    Serial.printf("  Show seconds: %s\n", moduleConfig.showSeconds ? "YES" : "NO");
-    Serial.printf("  Sync interval: %d seconds\n", moduleConfig.syncInterval);
-    Serial.printf("  Timezone: %s\n", moduleConfig.timezone.isEmpty() ? "DEFAULT" : moduleConfig.timezone.c_str());
-    Serial.printf("  System Timezone: %s\n", moduleConfig.systemTimezone.c_str());
-    Serial.printf("  Position: (%d, %d)\n", moduleConfig.positionX, moduleConfig.positionY);
-    Serial.printf("  Size: %dx%d\n", moduleConfig.width, moduleConfig.height);
-    Serial.printf("  Enabled: %s\n", moduleConfig.enable ? "YES" : "NO");
+    LOG_INFO("Clock configured from INI section");
+    LOG_INFOF("  Format: %s\n", moduleConfig.format.c_str());
+    LOG_INFOF("  Show seconds: %s\n", moduleConfig.showSeconds ? "YES" : "NO");
+    LOG_INFOF("  Sync interval: %d seconds\n", moduleConfig.syncInterval);
+    LOG_INFOF("  Position: (%d, %d)\n", moduleConfig.positionX, moduleConfig.positionY);
+    LOG_INFOF("  Size: %dx%d\n", moduleConfig.width, moduleConfig.height);
+    LOG_INFOF("  Enabled: %s\n", moduleConfig.enable ? "YES" : "NO");
 
     return true;
 }
 
-void Clock::Setup() { Serial.println("Clock Setup"); }
+void Clock::Setup() { LOG_INFO("Clock Setup"); }
 
 void Clock::Run(void* parameter) {
-    Serial.println("Clock Run");
+    LOG_INFO("Clock Run");
 
     // Wait for configuration to be ready
     ConfigManager* configManager = ConfigManager::getInstance();
     while (!configManager->IsReady()) {
-        Serial.println("Waiting for config to be ready...");
+        LOG_INFO("Waiting for config to be ready...");
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
     // Re-configure from INI section now that config is ready
     ConfigSection moduleSection = configManager->getConfigSection("clock");
-    // Add system timezone to the section
-    moduleSection.keyValuePairs["systemTimezone"] = configManager->getSystemTimezone();
     
     if (!ConfigureFromSection(moduleSection)) {
-        Serial.println("Failed to re-configure Clock module after config ready");
+        LOG_INFO("Failed to re-configure Clock module after config ready");
         vTaskDelete(NULL);
         return;
     }
@@ -100,7 +91,7 @@ void Clock::Run(void* parameter) {
     }
 
     ready = true;
-    configTime(0, 0, "pool.ntp.org");
+    LOG_INFO("Clock module ready - using system time sync");
 
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(1000));
@@ -113,22 +104,22 @@ void Clock::Draw() {
     // Get current time and display it
     struct tm timeinfo;
     if (getLocalTime(&timeinfo)) {
-        // Apply timezone offset if configured
-        String timezone = moduleConfig.timezone;
-        if (timezone == "") {
-            timezone = moduleConfig.systemTimezone;
-        }
+        // Always use system timezone from ConfigManager
+        ConfigManager* configManager = ConfigManager::getInstance();
+        String timezone = configManager->getSystemTimezone();
 
         if (timezone != "") {
-            // Get current time as timestamp
-            time_t currentTime = mktime(&timeinfo);
-
-            // Apply timezone offset
+            // getLocalTime() returns UTC time since configTime was called with (0,0)
+            // Convert tm to timestamp treating it as UTC time
+            // Using portable implementation instead of timegm()
+            time_t utcTime = mktime(&timeinfo) - timezone_offset_from_mktime_to_utc();
+            
+            // Apply timezone offset to get local time
             int timezoneOffset = TimezoneUtils::getTimezoneOffset(timezone);
-            currentTime += timezoneOffset;
+            time_t localTime = utcTime + timezoneOffset;
 
             // Convert back to tm structure
-            struct tm* adjustedTime = gmtime(&currentTime);
+            struct tm* adjustedTime = gmtime(&localTime);
             if (adjustedTime != nullptr) {
                 timeinfo = *adjustedTime;
             }
@@ -167,8 +158,21 @@ void Clock::Draw() {
 
         u8g2.drawStr(centerX, centerY, timeString);
     } else {
-        Serial.println("Time not available");
+        LOG_INFO("Time not available");
     }
+}
+
+// Helper function to get timezone offset that mktime would apply
+// This helps us convert mktime result back to UTC
+time_t Clock::timezone_offset_from_mktime_to_utc() {
+    // Since we called configTime(0, 0, ...), mktime should work as if we're in UTC
+    // But to be safe, we calculate the offset
+    time_t now = time(nullptr);
+    struct tm* utc_tm = gmtime(&now);
+    if (!utc_tm) return 0;
+    
+    time_t utc_time = mktime(utc_tm);
+    return utc_time - now;
 }
 
 bool Clock::IsReady() { return ready; }

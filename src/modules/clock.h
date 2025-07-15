@@ -2,6 +2,7 @@
 #define CLOCK_H
 
 #include "module.h"
+#include "logger.h"
 
 // Forward declaration
 class WiFiManager;
@@ -13,8 +14,6 @@ struct ClockConfig : public ModuleConfig {
     String format = "24h";  // "12h" or "24h"
     bool showSeconds = true;
     int syncInterval = 3600;        // Time sync interval in seconds
-    String timezone = "";           // Module-specific timezone
-    String systemTimezone = "UTC";  // Fallback system timezone
 };
 
 class Clock : public IModule {
@@ -32,6 +31,9 @@ class Clock : public IModule {
 
     // Module state
     bool ready = false;
+    
+    // Helper function to calculate timezone offset for mktime conversion
+    time_t timezone_offset_from_mktime_to_utc();
 };
 
 }  // namespace modules

@@ -2,6 +2,7 @@
 #define DISPLAY_H
 
 #include <Arduino.h>
+#include "logger.h"
 #include <vector>
 #include "pins.h"
 #include "terminal.h"

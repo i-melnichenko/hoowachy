@@ -2,6 +2,7 @@
 #define BUZZER_H
 
 #include <Arduino.h>
+#include "logger.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include "event_manager.h"

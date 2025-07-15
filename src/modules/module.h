@@ -2,6 +2,7 @@
 #define MODULE_H
 
 #include <Arduino.h>
+#include "logger.h"
 #include <map>
 #include <vector>
 
@@ -55,6 +56,9 @@ class IModule {
 
     // New method to configure from INI section
     virtual bool ConfigureFromSection(const ConfigSection& section) = 0;
+    
+    // Method to identify overlay modules (should be drawn last)
+    virtual bool IsOverlay() const { return false; }
 };
 
 }  // namespace modules

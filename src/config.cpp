@@ -1,4 +1,6 @@
 #include "config.h"
+#include "logger.h"
+#include "timezone_utils.h"
 
 // Global configuration instance
 Config config;
@@ -44,29 +46,35 @@ bool Config::isReady() const { return this->ready; }
 void Config::setReady(bool ready) { this->ready = ready; }
 
 void Config::printConfig() const {
-    Serial.println("=== Configuration Settings ===");
+    LOG_INFO("=== Configuration Settings ===");
 
-    Serial.println("[WiFi]");
-    Serial.printf("  SSID: %s\n", wifi.ssid.c_str());
-    Serial.printf("  Password: %s\n", wifi.password.length() > 0 ? "****" : "Not set");
+    LOG_INFO("[WiFi]");
+    LOG_INFOF("  SSID: %s\n", wifi.ssid.c_str());
+    LOG_INFOF("  Password: %s\n", wifi.password.length() > 0 ? "****" : "Not set");
 
-    Serial.println("[System]");
-    Serial.printf("  Language: %s\n", system.language.c_str());
-    Serial.printf("  Timezone: %s\n", system.timezone.c_str());
-    Serial.printf("  NTP Server: %s\n", system.ntpServer.c_str());
+    LOG_INFO("[System]");
+    LOG_INFOF("  Language: %s\n", system.language.c_str());
+    LOG_INFOF("  Timezone: %s\n", system.timezone.c_str());
+    LOG_INFOF("  NTP Server: %s\n", system.ntpServer.c_str());
 
-    Serial.println("[Display]");
-    Serial.printf("  Brightness: %d%%\n", display.brightness);
+    LOG_INFO("[Display]");
+    LOG_INFOF("  Brightness: %d%%\n", display.brightness);
 
-    Serial.println("[Buzzer]");
-    Serial.printf("  Volume: %d%%\n", buzzer.volume);
-    Serial.printf("  Enabled: %s\n", buzzer.enabled ? "Yes" : "No");
-    Serial.printf("  Startup Sound: %s\n", buzzer.startupSound ? "Yes" : "No");
+    LOG_INFO("[Buzzer]");
+    LOG_INFOF("  Volume: %d%%\n", buzzer.volume);
+    LOG_INFOF("  Enabled: %s\n", buzzer.enabled ? "Yes" : "No");
+    LOG_INFOF("  Startup Sound: %s\n", buzzer.startupSound ? "Yes" : "No");
 
-    Serial.println("[Modules]");
-    Serial.println("  Module configurations are now managed by individual modules");
+    LOG_INFO("[Logger]");
+    LOG_INFOF("  File Logging: %s\n", logger.fileLoggingEnabled ? "Yes" : "No");
+    LOG_INFOF("  Log Level: %s\n", logger.logLevel.c_str());
+    LOG_INFOF("  File Prefix: %s\n", logger.filePrefix.c_str());
+    LOG_INFOF("  Include Date: %s\n", logger.includeDateInFilename ? "Yes" : "No");
 
-    Serial.println("===============================");
+    LOG_INFO("[Modules]");
+    LOG_INFO("  Module configurations are now managed by individual modules");
+
+    LOG_INFO("===============================");
 }
 
 String Config::toString() const {
@@ -76,113 +84,14 @@ String Config::toString() const {
               ", ntpServer=" + system.ntpServer + "}\n";
     result += "  Display: {brightness=" + String(display.brightness) + "}\n";
     result += "  Buzzer: {volume=" + String(buzzer.volume) + ", enabled=" + String(buzzer.enabled) + "}\n";
+    result += "  Logger: {fileLogging=" + String(logger.fileLoggingEnabled) + ", level=" + logger.logLevel + ", prefix=" + logger.filePrefix + "}\n";
     result += "  Modules: {configurations managed by individual modules}\n";
     result += "}";
     return result;
 }
 
-// Helper function to determine if it's daylight saving time for European timezones
-bool isDaylightSavingTime() {
-    struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) {
-        return false;  // Default to standard time if we can't get time
-    }
-
-    int month = timeinfo.tm_mon + 1;  // tm_mon is 0-based
-    int day = timeinfo.tm_mday;
-    int weekday = timeinfo.tm_wday;  // 0=Sunday, 1=Monday, etc.
-
-    // DST runs from last Sunday in March to last Sunday in October
-
-    // Before March or after October - definitely standard time
-    if (month < 3 || month > 10) {
-        return false;
-    }
-
-    // April to September - definitely daylight saving time
-    if (month > 3 && month < 10) {
-        return true;
-    }
-
-    // March - check if we're past the last Sunday
-    if (month == 3) {
-        // Find last Sunday of March
-        int lastSunday = 31;  // Start from last day of March
-        while (lastSunday > 0) {
-            // Calculate day of week for this date
-            struct tm testDate = timeinfo;
-            testDate.tm_mday = lastSunday;
-            testDate.tm_mon = 2;  // March is month 2 (0-based)
-            mktime(&testDate);    // Normalize the date
-
-            if (testDate.tm_wday == 0) {  // Sunday
-                break;
-            }
-            lastSunday--;
-        }
-        return day >= lastSunday;
-    }
-
-    // October - check if we're before the last Sunday
-    if (month == 10) {
-        // Find last Sunday of October
-        int lastSunday = 31;  // Start from last day of October
-        while (lastSunday > 0) {
-            // Calculate day of week for this date
-            struct tm testDate = timeinfo;
-            testDate.tm_mday = lastSunday;
-            testDate.tm_mon = 9;  // October is month 9 (0-based)
-            mktime(&testDate);    // Normalize the date
-
-            if (testDate.tm_wday == 0) {  // Sunday
-                break;
-            }
-            lastSunday--;
-        }
-        return day < lastSunday;
-    }
-
-    return false;  // Default to standard time
-}
-
 // Convert timezone string to GMT offset in seconds
+// Delegates to TimezoneUtils for proper UTC-based DST calculation
 int Config::getTimezoneOffset(const String& timezone) {
-    // Common timezone mappings (GMT offset in seconds)
-    if (timezone == "UTC" || timezone == "GMT") return 0;
-
-    // Europe - with DST support
-    if (timezone == "CET" || timezone == "Europe/Berlin") {
-        return isDaylightSavingTime() ? 2 * 3600 : 1 * 3600;  // CEST vs CET
-    }
-    if (timezone == "EET" || timezone == "Europe/Kiev") {
-        return isDaylightSavingTime() ? 3 * 3600 : 2 * 3600;  // EEST vs EET
-    }
-    if (timezone == "BST" || timezone == "Europe/London") {
-        return isDaylightSavingTime() ? 1 * 3600 : 0;  // BST vs GMT
-    }
-
-    // America
-    if (timezone == "EST" || timezone == "America/New_York") return -5 * 3600;
-    if (timezone == "CST" || timezone == "America/Chicago") return -6 * 3600;
-    if (timezone == "MST" || timezone == "America/Denver") return -7 * 3600;
-    if (timezone == "PST" || timezone == "America/Los_Angeles") return -8 * 3600;
-
-    // Asia
-    if (timezone == "JST" || timezone == "Asia/Tokyo") return 9 * 3600;
-    if (timezone == "CST" || timezone == "Asia/Shanghai") return 8 * 3600;
-    if (timezone == "IST" || timezone == "Asia/Kolkata") return 5 * 3600 + 30 * 60;
-
-    // Try to parse as GMT+/-X format
-    if (timezone.startsWith("GMT+") || timezone.startsWith("UTC+")) {
-        int hours = timezone.substring(4).toInt();
-        return hours * 3600;
-    }
-    if (timezone.startsWith("GMT-") || timezone.startsWith("UTC-")) {
-        int hours = timezone.substring(4).toInt();
-        return -hours * 3600;
-    }
-
-    // Default to UTC if timezone is not recognized
-    Serial.printf("Warning: Unknown timezone '%s', defaulting to UTC\n", timezone.c_str());
-    return 0;
+    return TimezoneUtils::getTimezoneOffset(timezone);
 }

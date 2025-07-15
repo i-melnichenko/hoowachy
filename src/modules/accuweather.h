@@ -2,6 +2,7 @@
 #define WEATHER_H
 
 #include <Arduino.h>
+#include "logger.h"
 #include <stdint.h>
 #include "event_manager.h"
 #include "module.h"
@@ -64,6 +65,7 @@ class AccuWeather : public IModule {
   private:
     const uint8_t* weatherIcon(int p);
     bool parseWeatherData(const String& jsonData);
+    bool parseWeatherDataSimple(const String& jsonData);
 
     // EEPROM addresses
     static const int EEPROM_FORECAST_START = 0;

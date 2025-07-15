@@ -2,6 +2,7 @@
 #define BUTTON_H
 
 #include <Arduino.h>
+#include "logger.h"
 #include "pins.h"
 
 // Forward declarations

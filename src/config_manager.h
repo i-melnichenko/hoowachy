@@ -2,6 +2,7 @@
 #define CONFIG_MANAGER_H
 
 #include <Arduino.h>
+#include "logger.h"
 #include "config.h"
 #include "modules/module.h"
 
@@ -38,6 +39,7 @@ class ConfigManager {
     void parseSystemSection(const String& key, const String& value);
     void parseDisplaySection(const String& key, const String& value);
     void parseBuzzerSection(const String& key, const String& value);
+    void parseLoggerSection(const String& key, const String& value);
 
   public:
     // Singleton pattern

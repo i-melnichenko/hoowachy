@@ -1,12 +1,14 @@
 #include "module_manager.h"
+#include "logger.h"
 #include "../config.h"
+#include "../config_manager.h"
 
 namespace modules {
 
 std::vector<TaskHandle_t> ModuleManager::taskHandles;
 
 void ModuleManager::StartAllModules() {
-    Serial.println("Starting all registered modules...");
+    LOG_INFO("Starting all registered modules...");
 
     // Print registered modules
     ModuleRegistry::PrintRegisteredModules();
@@ -14,7 +16,7 @@ void ModuleManager::StartAllModules() {
     const auto& modules = ModuleRegistry::GetModules();
 
     for (const auto& moduleInfo : modules) {
-        Serial.printf("Starting module: %s\n", moduleInfo.name.c_str());
+        LOG_INFOF("Starting module: %s\n", moduleInfo.name.c_str());
 
         TaskHandle_t taskHandle = NULL;
 
@@ -26,29 +28,37 @@ void ModuleManager::StartAllModules() {
 
         if (result == pdPASS) {
             taskHandles.push_back(taskHandle);
-            Serial.printf("Module %s started successfully\n", moduleInfo.name.c_str());
+            LOG_INFOF("Module %s started successfully\n", moduleInfo.name.c_str());
         } else {
-            Serial.printf("Failed to start module %s\n", moduleInfo.name.c_str());
+            LOG_INFOF("Failed to start module %s\n", moduleInfo.name.c_str());
             delete moduleInfoCopy;
         }
     }
 }
 
 void ModuleManager::ModuleTaskWrapper(void* parameter) {
+     // Wait for configuration to be ready
+     ConfigManager* configManager = ConfigManager::getInstance();
+     while (!configManager->IsReady()) {
+         LOG_INFO("Waiting for config to be ready...");
+         vTaskDelay(pdMS_TO_TICKS(100));
+     }
+ 
+
     ModuleInfo* moduleInfo = static_cast<ModuleInfo*>(parameter);
 
     if (!moduleInfo) {
-        Serial.println("Invalid module info in task wrapper");
+        LOG_INFO("Invalid module info in task wrapper");
         vTaskDelete(NULL);
         return;
     }
 
-    Serial.printf("Module task wrapper started for: %s\n", moduleInfo->name.c_str());
+    LOG_INFOF("Module task wrapper started for: %s\n", moduleInfo->name.c_str());
 
     // Create module instance
     IModule* module = moduleInfo->factory();
     if (!module) {
-        Serial.printf("Failed to create module instance: %s\n", moduleInfo->name.c_str());
+        LOG_INFOF("Failed to create module instance: %s\n", moduleInfo->name.c_str());
         delete moduleInfo;
         vTaskDelete(NULL);
         return;
@@ -74,7 +84,7 @@ void ModuleManager::ModuleTaskWrapper(void* parameter) {
 }
 
 void ModuleManager::StopAllModules() {
-    Serial.println("Stopping all modules...");
+    LOG_INFO("Stopping all modules...");
 
     for (TaskHandle_t taskHandle : taskHandles) {
         if (taskHandle != NULL) {

@@ -2,6 +2,7 @@
 #define EVENT_MANAGER_H
 
 #include <Arduino.h>
+#include "logger.h"
 #include <functional>
 #include <memory>
 #include <typeinfo>

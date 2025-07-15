@@ -2,6 +2,7 @@
 #define TERMINAL_H
 
 #include <Arduino.h>
+#include "logger.h"
 #include <vector>
 
 // Forward declarations

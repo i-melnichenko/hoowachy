@@ -2,6 +2,7 @@
 #define WEATHER_ICONS_H
 
 #include <pgmspace.h>
+#include "logger.h"
 
 namespace modules {
 
